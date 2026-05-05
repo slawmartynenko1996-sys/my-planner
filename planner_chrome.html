@@ -7,43 +7,40 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="apple-mobile-web-app-title" content="Планувальник"/>
 <title>Мій планувальник</title>
-<script type="module">
-import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import{getFirestore,doc,setDoc,getDoc,onSnapshot}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-const fbCfg={apiKey:"AIzaSyBPKmyO5iR0H_qPWmmaZ417yblVHAVwptI",authDomain:"task-manadger-7a74e.firebaseapp.com",projectId:"task-manadger-7a74e",storageBucket:"task-manadger-7a74e.firebasestorage.app",messagingSenderId:"593708202739",appId:"1:593708202739:web:2f950a09924a15fe9e1586"};
-const app=initializeApp(fbCfg);
-const db=getFirestore(app);
-const DOC='planner/data';
-let saving=false;
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+var fbCfg={apiKey:"AIzaSyBPKmyO5iR0H_qPWmmaZ417yblVHAVwptI",authDomain:"task-manadger-7a74e.firebaseapp.com",projectId:"task-manadger-7a74e",storageBucket:"task-manadger-7a74e.firebasestorage.app",messagingSenderId:"593708202739",appId:"1:593708202739:web:2f950a09924a15fe9e1586"};
+firebase.initializeApp(fbCfg);
+var db=firebase.firestore();
+var PDOC=db.collection('planner').doc('data');
+var fbSaving=false;
+var FB_KEYS=['pl_inc','pl_tasks','pl_evts','pl_lessons','pl_goals2'];
 
-async function saveToCloud(){
-  if(saving)return;saving=true;
-  try{
-    await setDoc(doc(db,DOC),{
-      pl_inc:localStorage.getItem('pl_inc')||'[]',
-      pl_tasks:localStorage.getItem('pl_tasks')||'[]',
-      pl_evts:localStorage.getItem('pl_evts')||'[]',
-      pl_lessons:localStorage.getItem('pl_lessons')||'[]',
-      pl_goals2:localStorage.getItem('pl_goals2')||'[]',
-      updated:Date.now()
-    });
-    document.getElementById('sync-status').textContent='☁️ Збережено';
-  }catch(e){document.getElementById('sync-status').textContent='⚠️ Помилка'}
-  saving=false;
-}
+function setSyncStatus(t){var el=document.getElementById('sync-status');if(el)el.textContent=t}
 
-/* Слухаємо зміни з інших пристроїв */
-onSnapshot(doc(db,DOC),function(snap){
-  if(!snap.exists())return;
+window.__saveToCloud=function(){
+  if(fbSaving)return;
+  fbSaving=true;
+  var data={updated:Date.now()};
+  FB_KEYS.forEach(function(k){data[k]=localStorage.getItem(k)||'[]'});
+  PDOC.set(data).then(function(){setSyncStatus('☁️ Збережено');fbSaving=false}).catch(function(e){setSyncStatus('⚠️ '+e.code);fbSaving=false});
+};
+
+/* Слухаємо зміни з інших пристроїв в реальному часі */
+PDOC.onSnapshot(function(snap){
+  if(!snap.exists)return;
   var d=snap.data();
-  var local=localStorage.getItem('pl_inc');
-  /* Оновлюємо тільки якщо дані новіші */
-  if(d.updated&&(!local||(JSON.parse(local).length===0&&JSON.parse(d.pl_inc||'[]').length>0))){
-    ['pl_inc','pl_tasks','pl_evts','pl_lessons','pl_goals2'].forEach(function(k){if(d[k])localStorage.setItem(k,d[k])});
+  if(!d||!d.updated)return;
+  var localUpdated=Number(localStorage.getItem('pl_updated')||0);
+  if(d.updated>localUpdated){
+    FB_KEYS.forEach(function(k){if(d[k])localStorage.setItem(k,d[k])});
+    localStorage.setItem('pl_updated',d.updated);
     if(window.__rerender)window.__rerender();
-    document.getElementById('sync-status').textContent='☁️ Синхронізовано';
+    setSyncStatus('☁️ Синхронізовано');
   }
 });
+</script>
 
 window.__saveToCloud=saveToCloud;
 </script>
@@ -494,7 +491,6 @@ function SS(k,v){
   try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}
   if(window.__saveToCloud)window.__saveToCloud();
 }
-window.__rerender=render;
 
 var incomes=LS('pl_inc',[]),tasks=LS('pl_tasks',[]),events=LS('pl_evts',[]),lessons=LS('pl_lessons',[]),goals=LS('pl_goals2',[]);
 var calY=new Date().getFullYear(),calM=new Date().getMonth(),selD=today();
@@ -896,67 +892,41 @@ var FB_CFG={
 var fbApp=initializeApp(FB_CFG);
 var db=getFirestore(fbApp);
 var DOC='planner/data';
-var syncing=false;
-var syncTimeout=null;
+window.__rerender=render;
 
-/* Показуємо статус синхронізації */
-function showSyncStatus(txt,clr){
-  var els=['sync-status','sync-status-m'];
-  els.forEach(function(id){
-    var el=document.getElementById(id);
-    if(el){el.textContent=txt;el.style.color=clr||'var(--t3)'}
-  });
-}
+g('evt-date').value=today();
+toggleGExtra();
+render();
 
-/* Зберігаємо в Firebase після кожної зміни (debounce 1.5s) */
-window.__fbSave=function(){
-  if(syncTimeout)clearTimeout(syncTimeout);
-  syncTimeout=setTimeout(function(){
-    try{
-      var inc=JSON.parse(localStorage.getItem('pl_inc')||'[]');
-      var tasks=JSON.parse(localStorage.getItem('pl_tasks')||'[]');
-      var evts=JSON.parse(localStorage.getItem('pl_evts')||'[]');
-      var lessons=JSON.parse(localStorage.getItem('pl_lessons')||'[]');
-      var goals=JSON.parse(localStorage.getItem('pl_goals2')||'[]');
-      setDoc(doc(db,DOC),{pl_inc:inc,pl_tasks:tasks,pl_evts:evts,pl_lessons:lessons,pl_goals2:goals,updated:Date.now()})
-        .then(function(){showSyncStatus('☁️ Збережено',null)})
-        .catch(function(){showSyncStatus('⚠️ Помилка збереження','#E24B4A')});
-      showSyncStatus('↑ Зберігаю...','#EF9F27');
-    }catch(e){}
-  },1500);
-};
-
-/* Слухаємо зміни з Firebase в реальному часі */
-onSnapshot(doc(db,DOC),function(snap){
-  if(!snap.exists())return;
-  if(syncing)return;
-  var data=snap.data();
-  var localUpd=parseInt(localStorage.getItem('pl_updated')||'0');
-  if(data.updated&&data.updated>localUpd){
-    syncing=true;
-    if(data.pl_inc)localStorage.setItem('pl_inc',JSON.stringify(data.pl_inc));
-    if(data.pl_tasks)localStorage.setItem('pl_tasks',JSON.stringify(data.pl_tasks));
-    if(data.pl_evts)localStorage.setItem('pl_evts',JSON.stringify(data.pl_evts));
-    if(data.pl_lessons)localStorage.setItem('pl_lessons',JSON.stringify(data.pl_lessons));
-    if(data.pl_goals2)localStorage.setItem('pl_goals2',JSON.stringify(data.pl_goals2));
-    localStorage.setItem('pl_updated',data.updated);
-    /* Оновлюємо UI */
-    if(window.__plannerRender)window.__plannerRender();
-    showSyncStatus('☁️ Синхронізовано',null);
-    setTimeout(function(){syncing=false},500);
-  }
+g('btn-export').addEventListener('click',function(){
+  var data={version:1,exported:new Date().toISOString(),pl_inc:incomes,pl_tasks:tasks,pl_evts:events,pl_lessons:lessons,pl_goals2:goals};
+  var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  var d=new Date();
+  a.download='planner-backup-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'.json';
+  a.click();URL.revokeObjectURL(url);
 });
 
-/* Патчимо localStorage.setItem щоб автоматично зберігати в Firebase */
-var origSet=localStorage.setItem.bind(localStorage);
-localStorage.setItem=function(key,value){
-  origSet(key,value);
-  if(['pl_inc','pl_tasks','pl_evts','pl_lessons','pl_goals2'].indexOf(key)>=0){
-    if(!syncing&&window.__fbSave)window.__fbSave();
-  }
-};
+g('import-file').addEventListener('change',function(e){
+  var file=e.target.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      var data=JSON.parse(ev.target.result);
+      if(!data.version){alert('Невірний формат файлу');return}
+      if(!confirm('Імпортувати дані? Поточні дані будуть замінені!')){return}
+      if(data.pl_inc){SS('pl_inc',data.pl_inc);incomes=data.pl_inc}
+      if(data.pl_tasks){SS('pl_tasks',data.pl_tasks);tasks=data.pl_tasks}
+      if(data.pl_evts){SS('pl_evts',data.pl_evts);events=data.pl_evts}
+      if(data.pl_lessons){SS('pl_lessons',data.pl_lessons);lessons=data.pl_lessons}
+      if(data.pl_goals2){SS('pl_goals2',data.pl_goals2);goals=data.pl_goals2}
+      render();alert('✅ Дані успішно імпортовані!');
+    }catch(err){alert('Помилка читання файлу: '+err.message)}
+  };
+  reader.readAsText(file);e.target.value='';
+});
 
-showSyncStatus('☁️ Підключення...');
-</script>
-</body>
-</html>
+})();
+</script></body></html>
