@@ -4,6 +4,43 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Фінанси</title>
+<script type="module">
+import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import{getFirestore,doc,setDoc,onSnapshot}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+const fbCfg={apiKey:"AIzaSyBPKmyO5iR0H_qPWmmaZ417yblVHAVwptI",authDomain:"task-manadger-7a74e.firebaseapp.com",projectId:"task-manadger-7a74e",storageBucket:"task-manadger-7a74e.firebasestorage.app",messagingSenderId:"593708202739",appId:"1:593708202739:web:2f950a09924a15fe9e1586"};
+const app=initializeApp(fbCfg);
+const db=getFirestore(app);
+const DOC='finance/data';
+let saving=false;
+
+async function saveToCloud(){
+  if(saving)return;saving=true;
+  try{
+    await setDoc(doc(db,DOC),{
+      f3_ri:localStorage.getItem('f3_ri')||'[]',
+      f3_pi:localStorage.getItem('f3_pi')||'[]',
+      f3_ex:localStorage.getItem('f3_ex')||'[]',
+      f3_cats:localStorage.getItem('f3_cats')||'[]',
+      f3_rates:localStorage.getItem('f3_rates')||'{}',
+      f3_ab:localStorage.getItem('f3_ab')||'[]',
+      updated:Date.now()
+    });
+    var el=document.getElementById('fm-sync');
+    if(el)el.textContent='☁️ Збережено';
+  }catch(e){var el=document.getElementById('fm-sync');if(el)el.textContent='⚠️ Помилка'}
+  saving=false;
+}
+
+onSnapshot(doc(db,DOC),function(snap){
+  if(!snap.exists())return;
+  var d=snap.data();
+  ['f3_ri','f3_pi','f3_ex','f3_cats','f3_rates','f3_ab'].forEach(function(k){if(d[k])localStorage.setItem(k,d[k])});
+  if(window.__fmRerender)window.__fmRerender();
+  var el=document.getElementById('fm-sync');if(el)el.textContent='☁️ Синхронізовано';
+});
+
+window.__fmSaveToCloud=saveToCloud;
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -281,6 +318,7 @@ select{
     <div class="logo-badge"><div class="logo-dot"></div><span class="logo-badge-t">Менеджер</span></div>
     <div class="logo-t">Фінанси</div>
     <div class="logo-d" id="s-date"></div>
+    <div id="fm-sync" style="font-size:10px;color:var(--acc);margin-top:4px;font-weight:500">☁️ Підключення...</div>
   </div>
   <nav class="nav">
     <button class="ni active" id="nav-home"><span class="ni-ic">⊞</span>Головна</button>
@@ -295,6 +333,7 @@ select{
   <div class="sf">
     <div class="sf-t">Цей місяць</div>
     <div id="sf"></div>
+    <div id="fm-sync" style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center"></div>
   </div>
 </div>
 
@@ -548,7 +587,11 @@ var TLAB={school:'Школа (група)',kinder:'Садочок (група)',
 var TCLR={school:'#4FA3E8',kinder:'#FF8C5A',private:'#22C88A',office:'#F5C842',online:'#A78BF5',other:'#8B8CA0'};
 
 function LS(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
-function SS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function SS(k,v){
+  try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}
+  if(window.__fmSaveToCloud)window.__fmSaveToCloud();
+}
+window.__fmRerender=render;
 
 var realInc=LS('f3_ri',[]);
 var planInc=LS('f3_pi',[]);
@@ -1108,6 +1151,77 @@ function calAddEX(){
 ['ri-date','pi-date','ex-date','r-date','c-ri-date','c-pi-date','c-ex-date'].forEach(function(id){if(g(id))g(id).value=today()});
 render();
 })();
+</script>
+
+<!-- FIREBASE SYNC -->
+<script type="module">
+import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import{getFirestore,doc,setDoc,onSnapshot}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+var FB_CFG={
+  apiKey:"AIzaSyBPKmyO5iR0H_qPWmmaZ417yblVHAVwptI",
+  authDomain:"task-manadger-7a74e.firebaseapp.com",
+  projectId:"task-manadger-7a74e",
+  storageBucket:"task-manadger-7a74e.firebasestorage.app",
+  messagingSenderId:"593708202739",
+  appId:"1:593708202739:web:2f950a09924a15fe9e1586"
+};
+
+var fbApp=initializeApp(FB_CFG,'finance');
+var db=getFirestore(fbApp);
+var DOC='finance/data';
+var syncing=false;
+var syncTimeout=null;
+
+function showSync(txt,clr){
+  var el=document.getElementById('fm-sync');
+  if(el){el.textContent=txt;el.style.color=clr||'var(--text3)'}
+}
+
+window.__fmSave=function(){
+  if(syncTimeout)clearTimeout(syncTimeout);
+  syncTimeout=setTimeout(function(){
+    try{
+      var ri=JSON.parse(localStorage.getItem('f3_ri')||'[]');
+      var pi=JSON.parse(localStorage.getItem('f3_pi')||'[]');
+      var ex=JSON.parse(localStorage.getItem('f3_ex')||'[]');
+      var ab=JSON.parse(localStorage.getItem('f3_ab')||'[]');
+      var rates=JSON.parse(localStorage.getItem('f3_rates')||'{}');
+      var cats=JSON.parse(localStorage.getItem('f3_cats')||'[]');
+      setDoc(doc(db,DOC),{f3_ri:ri,f3_pi:pi,f3_ex:ex,f3_ab:ab,f3_rates:rates,f3_cats:cats,updated:Date.now()})
+        .then(function(){showSync('☁️ Збережено')})
+        .catch(function(){showSync('⚠️ Помилка','#FF5C5C')});
+      showSync('↑ Зберігаю...','#F5C842');
+    }catch(e){}
+  },1500);
+};
+
+onSnapshot(doc(db,DOC),function(snap){
+  if(!snap.exists()||syncing)return;
+  var data=snap.data();
+  var localUpd=parseInt(localStorage.getItem('f3_updated')||'0');
+  if(data.updated&&data.updated>localUpd){
+    syncing=true;
+    ['f3_ri','f3_pi','f3_ex','f3_ab','f3_cats'].forEach(function(k){
+      if(data[k])localStorage.setItem(k,JSON.stringify(data[k]));
+    });
+    if(data.f3_rates)localStorage.setItem('f3_rates',JSON.stringify(data.f3_rates));
+    localStorage.setItem('f3_updated',data.updated);
+    if(window.__fmRender)window.__fmRender();
+    showSync('☁️ Синхронізовано');
+    setTimeout(function(){syncing=false},500);
+  }
+});
+
+var origSet=localStorage.setItem.bind(localStorage);
+localStorage.setItem=function(key,value){
+  origSet(key,value);
+  if(['f3_ri','f3_pi','f3_ex','f3_ab','f3_rates','f3_cats'].indexOf(key)>=0){
+    if(!syncing&&window.__fmSave)window.__fmSave();
+  }
+};
+
+showSync('☁️ Підключення...');
 </script>
 </body>
 </html>
